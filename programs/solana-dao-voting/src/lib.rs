@@ -166,7 +166,7 @@ pub struct WithdrawVote<'info> {
     pub dao: Account<'info, Dao>,
     #[account(has_one = dao)]
     pub proposal: Account<'info, Proposal>,
-    #[account(has_one = voter, has_one = proposal, close = voter)]
+    #[account(mut, has_one = voter, has_one = proposal, close = voter)]
     pub vote_record: Account<'info, VoteRecord>,
     #[account(mut, constraint = voter_token_account.mint == dao.governance_mint)]
     pub voter_token_account: Account<'info, TokenAccount>,
