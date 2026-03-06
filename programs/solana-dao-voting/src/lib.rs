@@ -1,5 +1,9 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token_interface::{Mint, TokenInterface, TokenAccount, TransferChecked, transfer_checked};
+use solana_multisig::cpi as multisig_cpi;
+use solana_multisig::cpi::accounts::ProposeTransfer as MsProposeTransfer;
+use solana_multisig::program::SolanaMultisig;
+use solana_multisig::Multisig;
 
 declare_id!("5Fbn6aG7dadaMY4vyCfaSuDPQFnR2zAqcp89MW1BoP6");
 
@@ -133,6 +137,54 @@ pub mod solana_dao_voting {
         ), vote.amount, ctx.accounts.governance_mint.decimals)?;
         Ok(())
     }
+
+    /// When a DAO proposal has passed, execute it by CPI-ing into the multisig
+    /// program to propose a transfer. The proposal must have passed quorum and
+    /// not yet been executed. This marks the proposal as executed and creates a
+    /// multisig transaction that still requires threshold approvals.
+    pub fn execute_via_multisig(ctx: Context<ExecuteViaMultisig>, transfer_amount: u64, memo: [u8; 32]) -> Result<()> {
+        let proposal = &mut ctx.accounts.proposal;
+        let dao = &ctx.accounts.dao;
+        let now = Clock::get()?.unix_timestamp;
+
+        // Verify the proposal has passed
+        require!(now >= proposal.expires_at, DaoError::VotingNotEnded);
+        require!(!proposal.executed, DaoError::AlreadyExecuted);
+        require!(proposal.yes_votes > proposal.no_votes, DaoError::ProposalRejected);
+        require!(proposal.yes_votes >= dao.min_quorum, DaoError::QuorumNotMet);
+
+        // Mark proposal as executed
+        proposal.executed = true;
+
+        // CPI into multisig program: propose_transfer
+        let cpi_accounts = MsProposeTransfer {
+            proposer: ctx.accounts.proposer.to_account_info(),
+            multisig: ctx.accounts.multisig.to_account_info(),
+            transaction: ctx.accounts.multisig_transaction.to_account_info(),
+            to_account: ctx.accounts.transfer_destination.to_account_info(),
+            system_program: ctx.accounts.system_program.to_account_info(),
+        };
+        let cpi_ctx = CpiContext::new(
+            ctx.accounts.multisig_program.to_account_info(),
+            cpi_accounts,
+        );
+        multisig_cpi::propose_transfer(cpi_ctx, transfer_amount, memo)?;
+
+        emit!(ProposalExecuted {
+            proposal: proposal.key(),
+            yes_votes: proposal.yes_votes,
+            no_votes: proposal.no_votes,
+        });
+
+        emit!(MultisigTransferProposed {
+            dao: dao.key(),
+            proposal: proposal.key(),
+            multisig: ctx.accounts.multisig.key(),
+            transfer_amount,
+            destination: ctx.accounts.transfer_destination.key(),
+        });
+        Ok(())
+    }
 }
 
 #[derive(Accounts)]
@@ -205,6 +257,34 @@ pub struct WithdrawVote<'info> {
     #[account(mut, constraint = vote_vault.owner == dao.key())]
     pub vote_vault: InterfaceAccount<'info, TokenAccount>,
     pub token_program: Interface<'info, TokenInterface>,
+}
+
+#[derive(Accounts)]
+pub struct ExecuteViaMultisig<'info> {
+    #[account(mut)]
+    pub proposer: Signer<'info>,
+
+    // ---- DAO accounts ----
+    pub dao: Account<'info, Dao>,
+    #[account(mut, has_one = dao)]
+    pub proposal: Account<'info, Proposal>,
+
+    // ---- Multisig CPI accounts ----
+    /// The multisig account to propose the transfer into.
+    #[account(mut)]
+    pub multisig: Account<'info, Multisig>,
+    /// The multisig transaction PDA (will be init'd by the CPI).
+    /// CHECK: Initialized by the multisig program via CPI.
+    #[account(mut)]
+    pub multisig_transaction: UncheckedAccount<'info>,
+    /// The destination account for the proposed transfer.
+    /// CHECK: Validated by the multisig program.
+    pub transfer_destination: AccountInfo<'info>,
+    /// The multisig program.
+    pub multisig_program: Program<'info, SolanaMultisig>,
+
+    // ---- Shared ----
+    pub system_program: Program<'info, System>,
 }
 
 #[account]
@@ -294,4 +374,13 @@ pub struct ProposalExecuted {
     pub proposal: Pubkey,
     pub yes_votes: u64,
     pub no_votes: u64,
+}
+
+#[event]
+pub struct MultisigTransferProposed {
+    pub dao: Pubkey,
+    pub proposal: Pubkey,
+    pub multisig: Pubkey,
+    pub transfer_amount: u64,
+    pub destination: Pubkey,
 }
