@@ -5,6 +5,9 @@ package_manager = "yarn"
 resolution = true
 skip-lint = false
 
+[programs.devnet]
+solana_dao_voting = "5Fbn6aG7dadaMY4vyCfaSuDPQFnR2zAqcp89MW1BoP6"
+
 [programs.localnet]
 solana_dao_voting = "6wGk7DpNBYDgwW4JZoRjdLB6iNni2AzhyuhiFsgES9ax"
 
@@ -12,7 +15,7 @@ solana_dao_voting = "6wGk7DpNBYDgwW4JZoRjdLB6iNni2AzhyuhiFsgES9ax"
 url = "https://api.apr.dev"
 
 [provider]
-cluster = "localnet"
+cluster = "devnet"
 wallet = "~/.config/solana/id.json"
 
 [scripts]

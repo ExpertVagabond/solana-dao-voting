@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Mint, Token, TokenAccount, Transfer};
 
-declare_id!("6wGk7DpNBYDgwW4JZoRjdLB6iNni2AzhyuhiFsgES9ax");
+declare_id!("5Fbn6aG7dadaMY4vyCfaSuDPQFnR2zAqcp89MW1BoP6");
 
 #[program]
 pub mod solana_dao_voting {
