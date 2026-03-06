@@ -15,6 +15,12 @@ pub mod solana_dao_voting {
         dao.min_quorum = min_quorum;
         dao.voting_period = voting_period;
         dao.bump = ctx.bumps.dao;
+
+        emit!(DaoInitialized {
+            dao: dao.key(),
+            authority: dao.authority,
+            governance_mint: dao.governance_mint,
+        });
         Ok(())
     }
 
@@ -28,7 +34,7 @@ pub mod solana_dao_voting {
         proposal.dao = dao.key();
         proposal.proposer = ctx.accounts.proposer.key();
         proposal.id = id;
-        proposal.title = title;
+        proposal.title = title.clone();
         proposal.description_hash = description_hash;
         proposal.yes_votes = 0;
         proposal.no_votes = 0;
@@ -36,6 +42,14 @@ pub mod solana_dao_voting {
         proposal.expires_at = proposal.created_at.checked_add(dao.voting_period).ok_or(DaoError::Overflow)?;
         proposal.executed = false;
         proposal.bump = ctx.bumps.proposal;
+
+        emit!(ProposalCreated {
+            dao: dao.key(),
+            proposal: proposal.key(),
+            proposer: proposal.proposer,
+            proposal_id: id,
+            description: title,
+        });
         Ok(())
     }
 
@@ -67,6 +81,13 @@ pub mod solana_dao_voting {
         vote.amount = amount;
         vote.side = side;
         vote.bump = ctx.bumps.vote_record;
+
+        emit!(VoteCast {
+            proposal: proposal.key(),
+            voter: ctx.accounts.voter.key(),
+            in_favor: side,
+            weight: amount,
+        });
         Ok(())
     }
 
@@ -79,7 +100,12 @@ pub mod solana_dao_voting {
         require!(proposal.yes_votes > proposal.no_votes, DaoError::ProposalRejected);
         require!(proposal.yes_votes >= dao.min_quorum, DaoError::QuorumNotMet);
         proposal.executed = true;
-        msg!("Proposal {} executed", proposal.id);
+
+        emit!(ProposalExecuted {
+            proposal: proposal.key(),
+            yes_votes: proposal.yes_votes,
+            no_votes: proposal.no_votes,
+        });
         Ok(())
     }
 
@@ -231,4 +257,35 @@ pub enum DaoError {
     QuorumNotMet,
     #[msg("Overflow")]
     Overflow,
+}
+
+#[event]
+pub struct DaoInitialized {
+    pub dao: Pubkey,
+    pub authority: Pubkey,
+    pub governance_mint: Pubkey,
+}
+
+#[event]
+pub struct ProposalCreated {
+    pub dao: Pubkey,
+    pub proposal: Pubkey,
+    pub proposer: Pubkey,
+    pub proposal_id: u64,
+    pub description: String,
+}
+
+#[event]
+pub struct VoteCast {
+    pub proposal: Pubkey,
+    pub voter: Pubkey,
+    pub in_favor: bool,
+    pub weight: u64,
+}
+
+#[event]
+pub struct ProposalExecuted {
+    pub proposal: Pubkey,
+    pub yes_votes: u64,
+    pub no_votes: u64,
 }
