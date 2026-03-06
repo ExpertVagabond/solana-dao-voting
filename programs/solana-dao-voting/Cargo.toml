@@ -23,6 +23,7 @@ custom-panic = []
 [dependencies]
 anchor-lang = "0.32.0"
 anchor-spl = "0.32.0"
+solana-multisig = { path = "../../../solana-multisig/programs/solana-multisig", features = ["cpi"] }
 
 
 [lints.rust]
