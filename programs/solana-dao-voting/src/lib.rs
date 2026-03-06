@@ -1,5 +1,5 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token::{self, Mint, Token, TokenAccount, Transfer};
+use anchor_spl::token_interface::{Mint, TokenInterface, TokenAccount, TransferChecked, transfer_checked};
 
 declare_id!("5Fbn6aG7dadaMY4vyCfaSuDPQFnR2zAqcp89MW1BoP6");
 
@@ -59,14 +59,15 @@ pub mod solana_dao_voting {
         require!(now < ctx.accounts.proposal.expires_at, DaoError::VotingEnded);
 
         // Lock tokens in vote vault
-        token::transfer(CpiContext::new(
+        transfer_checked(CpiContext::new(
             ctx.accounts.token_program.to_account_info(),
-            Transfer {
+            TransferChecked {
                 from: ctx.accounts.voter_token_account.to_account_info(),
                 to: ctx.accounts.vote_vault.to_account_info(),
                 authority: ctx.accounts.voter.to_account_info(),
+                mint: ctx.accounts.governance_mint.to_account_info(),
             },
-        ), amount)?;
+        ), amount, ctx.accounts.governance_mint.decimals)?;
 
         let proposal = &mut ctx.accounts.proposal;
         if side {
@@ -120,15 +121,16 @@ pub mod solana_dao_voting {
         let bump = dao.bump;
         let seeds: &[&[u8]] = &[b"dao", authority_key.as_ref(), mint_key.as_ref(), &[bump]];
 
-        token::transfer(CpiContext::new_with_signer(
+        transfer_checked(CpiContext::new_with_signer(
             ctx.accounts.token_program.to_account_info(),
-            Transfer {
+            TransferChecked {
                 from: ctx.accounts.vote_vault.to_account_info(),
                 to: ctx.accounts.voter_token_account.to_account_info(),
                 authority: ctx.accounts.dao.to_account_info(),
+                mint: ctx.accounts.governance_mint.to_account_info(),
             },
             &[seeds],
-        ), vote.amount)?;
+        ), vote.amount, ctx.accounts.governance_mint.decimals)?;
         Ok(())
     }
 }
@@ -137,14 +139,14 @@ pub mod solana_dao_voting {
 pub struct CreateDao<'info> {
     #[account(mut)]
     pub authority: Signer<'info>,
-    pub governance_mint: Account<'info, Mint>,
+    pub governance_mint: InterfaceAccount<'info, Mint>,
     #[account(init, payer = authority, space = 8 + Dao::INIT_SPACE,
         seeds = [b"dao", authority.key().as_ref(), governance_mint.key().as_ref()], bump)]
     pub dao: Account<'info, Dao>,
     #[account(init, payer = authority, token::mint = governance_mint, token::authority = dao)]
-    pub vote_vault: Account<'info, TokenAccount>,
+    pub vote_vault: InterfaceAccount<'info, TokenAccount>,
     pub system_program: Program<'info, System>,
-    pub token_program: Program<'info, Token>,
+    pub token_program: Interface<'info, TokenInterface>,
     pub rent: Sysvar<'info, Rent>,
 }
 
@@ -171,12 +173,14 @@ pub struct CastVote<'info> {
     #[account(init, payer = voter, space = 8 + VoteRecord::INIT_SPACE,
         seeds = [b"vote", proposal.key().as_ref(), voter.key().as_ref()], bump)]
     pub vote_record: Account<'info, VoteRecord>,
+    #[account(constraint = governance_mint.key() == dao.governance_mint)]
+    pub governance_mint: InterfaceAccount<'info, Mint>,
     #[account(mut, constraint = voter_token_account.mint == dao.governance_mint)]
-    pub voter_token_account: Account<'info, TokenAccount>,
+    pub voter_token_account: InterfaceAccount<'info, TokenAccount>,
     #[account(mut, constraint = vote_vault.mint == dao.governance_mint, constraint = vote_vault.owner == dao.key())]
-    pub vote_vault: Account<'info, TokenAccount>,
+    pub vote_vault: InterfaceAccount<'info, TokenAccount>,
     pub system_program: Program<'info, System>,
-    pub token_program: Program<'info, Token>,
+    pub token_program: Interface<'info, TokenInterface>,
 }
 
 #[derive(Accounts)]
@@ -194,11 +198,13 @@ pub struct WithdrawVote<'info> {
     pub proposal: Account<'info, Proposal>,
     #[account(mut, has_one = voter, has_one = proposal, close = voter)]
     pub vote_record: Account<'info, VoteRecord>,
+    #[account(constraint = governance_mint.key() == dao.governance_mint)]
+    pub governance_mint: InterfaceAccount<'info, Mint>,
     #[account(mut, constraint = voter_token_account.mint == dao.governance_mint)]
-    pub voter_token_account: Account<'info, TokenAccount>,
+    pub voter_token_account: InterfaceAccount<'info, TokenAccount>,
     #[account(mut, constraint = vote_vault.owner == dao.key())]
-    pub vote_vault: Account<'info, TokenAccount>,
-    pub token_program: Program<'info, Token>,
+    pub vote_vault: InterfaceAccount<'info, TokenAccount>,
+    pub token_program: Interface<'info, TokenInterface>,
 }
 
 #[account]
